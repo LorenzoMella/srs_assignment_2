@@ -1,0 +1,71 @@
+---
+title: "Statistical Research Skills -- Assignment 2"
+author: "Lorenzo Mella (UUN: s1566023)"
+output: pdf_document
+---
+
+
+# Description of the problem
+
+Kernel density estimation (KDE) models the distribution under a criterion of smoothness of the density. Under the heuristic principle that datapoints in a sample generated form a distribution with density $f(x)$ tautologically accumulate with high probability in high-density regions, we associate to each datapoint $x_i$ a scaled kernel $K_h(x-x_i)$. The average of these functions hopefully provides a good approximation to the original density.
+
+The choice of kernel is dictated by numerical requirements: if the kernel has unbounded support, for instance, every summand must be computed in $x$, to evaluate the density $\hat{f}(x)$.
+
+It is also dictated by smoothness considerations: if we expect the data to be generate from a smooth density, it would be more sensible to use graded kernels such as a Gaussian or the Epanechnikov kernel. A rectangular kernel would be more appropriate for piecewise constant densities.
+
+
+## Kernel density estimator
+
+Problematic choices:
+
+- bandwidth
+- kernel shape
+
+```{r}
+
+```
+
+## Histogram estimator
+
+Problematic choices:
+
+- number of bins
+
+## Mixture model estimator
+
+Problematic parameter:
+
+- conditional distributions
+- number of conditional distributions
+
+
+# Experimental setting
+
+## Densities that represent a wide testing range of possibilities
+
+- Choose a variety of scenarios for the density to approximate:
+  - Gaussian (symmetric, small tails)
+  - Student-t (symmetric, heavy tails)
+  - Gamma (skewed)
+  - Uniform (shape best approximated by rectangular kernels, histograms and the like)
+
+## One shot experiments
+
+- Graphs
+- Discussion
+
+```{r}
+max_samples = 250
+# Generate data from the first density
+normalmixEM()
+
+
+
+plot.mixEM()
+```
+
+
+## Monte Carlo simulation
+
+- ISEs for sample sizes 250, 500, 1000
+- Discussion
