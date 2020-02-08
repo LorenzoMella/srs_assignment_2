@@ -43,11 +43,29 @@ Problematic parameter:
 
 ## Densities that represent a wide testing range of possibilities
 
-- Choose a variety of scenarios for the density to approximate:
-  - Gaussian (symmetric, small tails)
-  - Student-t (symmetric, heavy tails)
-  - Gamma (skewed)
-  - Uniform (shape best approximated by rectangular kernels, histograms and the like)
+```{r}
+# Densities to be tested
+
+# Normal (unimodal base case)
+density_1 = function(x) dnorm(x, 0, 3)
+# Student t (unimodal with heavier tails)
+density_2 = function(x) dt(x / 3, df = 1)
+# Uniform (discontinuous density with a dense modes)
+density_3 = function(x) dunif(x, 0, 3)
+# Gamma (unimodal, positively skewed)
+density_4 = function(x) dgamma(x, 3, 1)
+# Mixture of distributions (trimodal, with many of the challenging features of the previous ones)
+density_5 = function(x) {
+  0.5 * dnorm(x, 0, 1) + 0.3 * dgamma(8 - x, 2, 1.5) + 0.2 * dunif(x, 3, 4.5)
+}
+# Random-number generator for density_5
+rdensity_5 = function(n) {
+  num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
+  sample(c(rnorm(num_samples[1], 0, 1), 8 - rgamma(num_samples[2], 2, 1.5), runif(num_samples[3], 3, 4.5)))
+}
+
+
+```
 
 ## One shot experiments
 
