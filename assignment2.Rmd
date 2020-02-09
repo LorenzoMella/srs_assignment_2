@@ -44,27 +44,31 @@ Problematic parameter:
 ## Densities that represent a wide testing range of possibilities
 
 ```{r}
-# Densities to be tested
+# Define densities and RNGs for the distributions to be tested
 
 # Normal (unimodal base case)
-density_1 = function(x) dnorm(x, 0, 3)
+ddensity_1 = function(x) dnorm(x, 0, 3)
+rdensity_1 = function(n) rnorm(n, 0, 3)
 # Student t (unimodal with heavier tails)
-density_2 = function(x) dt(x / 3, df = 1)
+ddensity_2 = function(x) dt(x / 3, df = 1)
+rdensity_2 = function(n) 3 * rt(n, df = 1)
 # Uniform (discontinuous density with a dense modes)
-density_3 = function(x) dunif(x, 0, 3)
+ddensity_3 = function(x) dunif(x, 0, 3)
+rdensity_3 = function(n) runif(n, 0, 3)
 # Gamma (unimodal, positively skewed)
-density_4 = function(x) dgamma(x, 3, 1)
-# Mixture of distributions (trimodal, with many of the challenging features of the previous ones)
-density_5 = function(x) {
+ddensity_4 = function(x) dgamma(x, 3, 1)
+rdensity_4 = function(n) rgamma(n, 3, 1)
+# Mixture of distributions
+# (trimodal, with many challenging features)
+ddensity_5 = function(x) {
   0.5 * dnorm(x, 0, 1) + 0.3 * dgamma(8 - x, 2, 1.5) + 0.2 * dunif(x, 3, 4.5)
 }
-# Random-number generator for density_5
 rdensity_5 = function(n) {
   num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
-  sample(c(rnorm(num_samples[1], 0, 1), 8 - rgamma(num_samples[2], 2, 1.5), runif(num_samples[3], 3, 4.5)))
+  sample(c(rnorm(num_samples[1], 0, 1),
+           8 - rgamma(num_samples[2], 2, 1.5),
+           runif(num_samples[3], 3, 4.5)))
 }
-
-
 ```
 
 ## One shot experiments
@@ -73,17 +77,45 @@ rdensity_5 = function(n) {
 - Discussion
 
 ```{r}
+# A density function obtained from histogram data returned by hist
+
+hist_density = function(hist_data, x) {
+  # Find the bin where x lies: its index is the maximum number
+  # of breaks less or equal to x. Return the histogram normalised
+  # frequency of that bin
+  sapply(x, FUN = function(y) {
+    if (y < hist_data$breaks[1] |
+          y >= hist_data$breaks[length(hist_data$breaks)]) {
+      return(0)
+    } else {
+      return(hist_data$density[sum(hist_data$breaks - y <= 0)])
+    }
+  })
+}
+O```
+
+
+```{r}
 max_samples = 250
 # Generate data from the first density
-normalmixEM()
+xx = rdensity_5(max_samples)
 
+plot(density(xx))
 
+normalmix_density = function(x, mix_output) {
+  sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
+}
 
-plot.mixEM()
+mixres = normalmixEM(xx, k = 2)
+
+plot(seq(0, 10, by = 0.1), normalmix_density(seq(0, 10, by = 0.1), mix_output = mixres), type = "l")
 ```
 
 
 ## Monte Carlo simulation
 
 - ISEs for sample sizes 250, 500, 1000
+
+This essentially means that 
+
 - Discussion
