@@ -5,6 +5,11 @@ output: pdf_document
 ---
 
 
+```{r}
+library(tidyverse, quietly = TRUE)
+library(patchwork, quietly = TRUE)
+```
+
 # Description of the problem
 
 Kernel density estimation (KDE) models the distribution under a criterion of smoothness of the density. Under the heuristic principle that datapoints in a sample generated form a distribution with density $f(x)$ tautologically accumulate with high probability in high-density regions, we associate to each datapoint $x_i$ a scaled kernel $K_h(x-x_i)$. The average of these functions hopefully provides a good approximation to the original density.
@@ -47,23 +52,23 @@ Problematic parameter:
 # Define densities and RNGs for the distributions to be tested
 
 # Normal (unimodal base case)
-ddensity_1 = function(x) dnorm(x, 0, 3)
-rdensity_1 = function(n) rnorm(n, 0, 3)
+ddistrib_1 = function(x) dnorm(x, 0, 3)
+rdistrib_1 = function(n) rnorm(n, 0, 3)
 # Student t (unimodal with heavier tails)
-ddensity_2 = function(x) dt(x / 3, df = 1)
-rdensity_2 = function(n) 3 * rt(n, df = 1)
+ddistrib_2 = function(x) dt(x / 3, df = 1)
+rdistrib_2 = function(n) 3 * rt(n, df = 1)
 # Uniform (discontinuous density with a dense modes)
-ddensity_3 = function(x) dunif(x, 0, 3)
-rdensity_3 = function(n) runif(n, 0, 3)
+ddistrib_3 = function(x) dunif(x, 0, 3)
+rdistrib_3 = function(n) runif(n, 0, 3)
 # Gamma (unimodal, positively skewed)
-ddensity_4 = function(x) dgamma(x, 3, 1)
-rdensity_4 = function(n) rgamma(n, 3, 1)
+ddistrib_4 = function(x) dgamma(x, 3, 1)
+rdistrib_4 = function(n) rgamma(n, 3, 1)
 # Mixture of distributions
 # (trimodal, with many challenging features)
-ddensity_5 = function(x) {
+ddistrib_5 = function(x) {
   0.5 * dnorm(x, 0, 1) + 0.3 * dgamma(8 - x, 2, 1.5) + 0.2 * dunif(x, 3, 4.5)
 }
-rdensity_5 = function(n) {
+rdistrib_5 = function(n) {
   num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
   sample(c(rnorm(num_samples[1], 0, 1),
            8 - rgamma(num_samples[2], 2, 1.5),
@@ -92,13 +97,43 @@ hist_density = function(hist_data, x) {
     }
   })
 }
-O```
 
+```
+
+
+```{r Graphing}
+# ggplot2 graphs
+
+overlay_plot = function(data, fun, hist_breaks, dens_ker, dens_bw) {
+  ggplot(data = tibble(xx = data), aes(x = xx)) +
+    geom_histogram(aes(y = ..density..), breaks = hist_breaks,
+                   color = "black", fill = "red", lwd = 1.5, alpha = 0.5) +
+    stat_function(fun = fun, color = "black", lwd = 2) +
+    stat_density(data = tibble(xx = data), aes(x = xx),
+                 kernel = dens_ker, bw = dens_bw,
+                 color = "blue", alpha = 0, lwd = 2)
+}
+
+max_samples = 250
+
+rdistribs = list(rdistrib_1, rdistrib_2, rdistrib_3, rdistrib_4, rdistrib_5)
+
+ddistribs = list(ddistrib_1, ddistrib_2, ddistrib_3, ddistrib_4, ddistrib_5)
+
+xx = lapply(rdistribs, function(fun) fun(max_samples))
+
+i = 5
+overlay_plot(xx[[i]], fun = ddistribs[[i]], hist_breaks = hist(xx[[i]])$breaks,
+             dens_ker = "gaussian", dens_bw = "bcv") +
+overlay_plot(xx[[1]], fun = ddistribs[[1]], hist_breaks = hist(xx[[1]])$breaks,
+             dens_ker = "gaussian", dens_bw = "bcv")
+
+```
 
 ```{r}
 max_samples = 250
 # Generate data from the first density
-xx = rdensity_5(max_samples)
+xx = rdistrib_5(max_samples)
 
 plot(density(xx))
 
