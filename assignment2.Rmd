@@ -26,9 +26,6 @@ Problematic choices:
 - bandwidth
 - kernel shape
 
-```{r}
-
-```
 
 ## Histogram estimator
 
@@ -98,6 +95,10 @@ hist_density = function(hist_data, x) {
   })
 }
 
+# A density function obtained by linear interpolation
+kern_density = function(density_data, x) {
+  approxfun(density_data$x, density_data$y, yleft = 0, yright = 0)(x)
+}
 ```
 
 
@@ -130,7 +131,7 @@ overlay_plot(xx[[1]], fun = ddistribs[[1]], hist_breaks = hist(xx[[1]])$breaks,
 
 ```
 
-```{r}
+```{r old_graphs}
 max_samples = 250
 # Generate data from the first density
 xx = rdistrib_5(max_samples)
@@ -146,11 +147,34 @@ mixres = normalmixEM(xx, k = 2)
 plot(seq(0, 10, by = 0.1), normalmix_density(seq(0, 10, by = 0.1), mix_output = mixres), type = "l")
 ```
 
+```{r ISE_calculation}
+max_samples = 250
+
+# With histogram density estimation
+samples_1 = rdistrib_1(max_samples)
+
+integrate_data = integrate(function(x) {(hist_density(hist_data = hist(samples_1, freq = FALSE, plot = FALSE), x) - ddistrib_1(x))^2},
+          lower = -Inf, upper = Inf)
+
+curve((hist_density(hist_data = hist(samples_1, plot = FALSE), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
+
+
+# With kernel density estimation
+
+
+# With mixture density estimation
+```
+
+
+
 
 ## Monte Carlo simulation
 
 - ISEs for sample sizes 250, 500, 1000
 
-This essentially means that 
+Two things can be done here:
+
+* Compute a Monte Carlo estimate of the MISE (per method per sample size)
+* Plot ISE histograms for each category and as a function of "time" on the same graph
 
 - Discussion
