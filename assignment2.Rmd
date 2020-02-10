@@ -1,4 +1,4 @@
----
+	---
 title: "Statistical Research Skills -- Assignment 2"
 author: "Lorenzo Mella (UUN: s1566023)"
 output: pdf_document
@@ -8,16 +8,10 @@ output: pdf_document
 ```{r}
 library(tidyverse, quietly = TRUE)
 library(patchwork, quietly = TRUE)
+library(mixtools)
 ```
 
-# Description of the problem
-
-Kernel density estimation (KDE) models the distribution under a criterion of smoothness of the density. Under the heuristic principle that datapoints in a sample generated form a distribution with density $f(x)$ tautologically accumulate with high probability in high-density regions, we associate to each datapoint $x_i$ a scaled kernel $K_h(x-x_i)$. The average of these functions hopefully provides a good approximation to the original density.
-
-The choice of kernel is dictated by numerical requirements: if the kernel has unbounded support, for instance, every summand must be computed in $x$, to evaluate the density $\hat{f}(x)$.
-
-It is also dictated by smoothness considerations: if we expect the data to be generate from a smooth density, it would be more sensible to use graded kernels such as a Gaussian or the Epanechnikov kernel. A rectangular kernel would be more appropriate for piecewise constant densities.
-
+# Introduction
 
 ## Kernel density estimator
 
@@ -49,27 +43,27 @@ Problematic parameter:
 # Define densities and RNGs for the distributions to be tested
 
 # Normal (unimodal base case)
-ddistrib_1 = function(x) dnorm(x, 0, 3)
-rdistrib_1 = function(n) rnorm(n, 0, 3)
+ddistrib_1 = function(x) dnorm(x, 5, 2)
+rdistrib_1 = function(n) rnorm(n, 5, 2)
 # Student t (unimodal with heavier tails)
 ddistrib_2 = function(x) dt(x / 3, df = 1)
 rdistrib_2 = function(n) 3 * rt(n, df = 1)
 # Uniform (discontinuous density with a dense modes)
-ddistrib_3 = function(x) dunif(x, 0, 3)
-rdistrib_3 = function(n) runif(n, 0, 3)
+ddistrib_3 = function(x) dunif(x, 3, 8)
+rdistrib_3 = function(n) runif(n, 3, 8)
 # Gamma (unimodal, positively skewed)
 ddistrib_4 = function(x) dgamma(x, 3, 1)
 rdistrib_4 = function(n) rgamma(n, 3, 1)
 # Mixture of distributions
 # (trimodal, with many challenging features)
 ddistrib_5 = function(x) {
-  0.5 * dnorm(x, 0, 1) + 0.3 * dgamma(8 - x, 2, 1.5) + 0.2 * dunif(x, 3, 4.5)
+  0.5 * dexp(x, 0.7) + 0.3 * dgamma(9 - x, 2, 1.5) + 0.2 * dunif(x, 3.5, 5)
 }
 rdistrib_5 = function(n) {
   num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
-  sample(c(rnorm(num_samples[1], 0, 1),
-           8 - rgamma(num_samples[2], 2, 1.5),
-           runif(num_samples[3], 3, 4.5)))
+  sample(c(rexp(num_samples[1], 0.7),
+           9 - rgamma(num_samples[2], 2, 1.5),
+           runif(num_samples[3], 3.5, 5)))
 }
 ```
 
@@ -78,34 +72,86 @@ rdistrib_5 = function(n) {
 - Graphs
 - Discussion
 
-```{r}
+```{r density_reconstruction}
 # A density function obtained from histogram data returned by hist
 
-hist_density = function(hist_data, x) {
+hist_density = function(hist_output, x) {
   # Find the bin where x lies: its index is the maximum number
   # of breaks less or equal to x. Return the histogram normalised
   # frequency of that bin
   sapply(x, FUN = function(y) {
-    if (y < hist_data$breaks[1] |
-          y >= hist_data$breaks[length(hist_data$breaks)]) {
+    if (y < hist_output$breaks[1] |
+          y >= hist_output$breaks[length(hist_output$breaks)]) {
       return(0)
     } else {
-      return(hist_data$density[sum(hist_data$breaks - y <= 0)])
+      return(hist_output$density[sum(hist_output$breaks - y <= 0)])
     }
   })
 }
 
 # A density function obtained by linear interpolation
-kern_density = function(density_data, x) {
-  approxfun(density_data$x, density_data$y, yleft = 0, yright = 0)(x)
+kern_density = function(density_output, x) {
+  approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)(x)
 }
+
+# A density function obtained from the output of normalmixEM
+normalmix_density = function(mix_output, x) {
+  sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
+}
+
+```
+
+```{r cross_validation}
+
+
+cv_error = function(density_est, data) {
+  # Compute the integral of the estimator
+  int_fh2 = integrate(density_est, lower = -Inf, upper = Inf)
+  # Monte-carlo estimate of the cross term
+  int_ffh = mean(density_est(data))
+  return(int_fh2$value - 2 * int_ffh)
+}
+
+samples_1 = rdistrib_1(250)
+
+max_breaks = 10:50
+hist_densities = lapply(max_breaks,
+               function(B) {function(x) hist_density(hist(samples_1, breaks = B, plot = FALSE), x)})
+
+bws = seq(0.1, 2, by = 0.1)
+kde_densities = lapply(bws,
+               function(B) {function(x) kern_density(density(samples_1, bw = B), x)})
+
+
+cv_errors = as.numeric(lapply(kde_densities,
+                              function (H) cv_error(H, samples_1)))
+
 ```
 
 
-```{r Graphing}
+```{r graphing}
 # ggplot2 graphs
 
-overlay_plot = function(data, fun, hist_breaks, dens_ker, dens_bw) {
+overlay_hist_plot = function(data, fun, hist_breaks, distr_name) {
+  ggplot(data = tibble(xx = data), aes(x = xx)) +
+    stat_function(fun = fun, color = "black", lwd = 1.5, xlim = c(0, 10)) +
+    geom_histogram(aes(y = ..density..), breaks = hist_breaks,
+                   color = "red", fill = "red", lwd = 1.2, alpha = 0.3, xlim = c(0,10)) +
+    ggtitle(distr_name)
+}
+
+
+overlay_dens_plot = function(data, fun, dens_ker, dens_bw, distr_name) {
+  ggplot(data = tibble(xx = data), aes(x = xx)) +
+    stat_function(fun = fun, color = "black", lwd = 1.5, xlim = c(0, 10)) +
+    stat_density(data = tibble(xx = data), aes(x = xx),
+                 kernel = dens_ker, bw = dens_bw,
+                 color = "blue", fill = "blue", alpha = 0, lwd = 1.5) +
+  ggtitle(distr_name)
+}
+
+# WIP
+overlay_gmm_plot = function(data, fun, mix_output) {
   ggplot(data = tibble(xx = data), aes(x = xx)) +
     geom_histogram(aes(y = ..density..), breaks = hist_breaks,
                    color = "black", fill = "red", lwd = 1.5, alpha = 0.5) +
@@ -115,37 +161,56 @@ overlay_plot = function(data, fun, hist_breaks, dens_ker, dens_bw) {
                  color = "blue", alpha = 0, lwd = 2)
 }
 
-max_samples = 250
 
-rdistribs = list(rdistrib_1, rdistrib_2, rdistrib_3, rdistrib_4, rdistrib_5)
 
-ddistribs = list(ddistrib_1, ddistrib_2, ddistrib_3, ddistrib_4, ddistrib_5)
+max_samples = 1000
 
-xx = lapply(rdistribs, function(fun) fun(max_samples))
+rdistribs = list(rdistrib_1, rdistrib_3, rdistrib_4, rdistrib_5)
 
-i = 5
-overlay_plot(xx[[i]], fun = ddistribs[[i]], hist_breaks = hist(xx[[i]])$breaks,
-             dens_ker = "gaussian", dens_bw = "bcv") +
-overlay_plot(xx[[1]], fun = ddistribs[[1]], hist_breaks = hist(xx[[1]])$breaks,
-             dens_ker = "gaussian", dens_bw = "bcv")
+ddistribs = list(ddistrib_1, ddistrib_3, ddistrib_4, ddistrib_5)
 
-```
+dnames = c("Normal", "Uniform", "Gamma", "Mixture")
 
-```{r old_graphs}
-max_samples = 250
-# Generate data from the first density
-xx = rdistrib_5(max_samples)
+x_samples = lapply(rdistribs, function(fun) fun(max_samples))
 
-plot(density(xx))
 
-normalmix_density = function(x, mix_output) {
-  sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
+# Histogram plot
+grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]], hist_breaks = hist(x_samples[[1]], plot = FALSE)$breaks, dnames[1])
+for (i in 2:4) {
+  grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]], hist_breaks = hist(x_samples[[i]], plot = FALSE)$breaks, dnames[i])
 }
+grph + plot_layout(nrow = 1, widths = 0.5)
+ggsave("distrib_hist.pdf", device = "pdf")
 
-mixres = normalmixEM(xx, k = 2)
 
-plot(seq(0, 10, by = 0.1), normalmix_density(seq(0, 10, by = 0.1), mix_output = mixres), type = "l")
+# Rectangular kernel plot
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "rectangular", dens_bw = "nrd0", dnames[1])
+for (i in 2:4) {
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "rectangular", dens_bw = "nrd0", dnames[i])
+}
+grph + plot_layout(nrow = 1, widths = 0.5)
+ggsave("distrib_kde_rect.pdf", device = "pdf")
+
+
+# Gaussian kernel plot
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "gaussian", dens_bw = "nrd0", dnames[1])
+for (i in 2:4) {
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "gaussian", dens_bw = "nrd0", dnames[i])
+}
+grph + plot_layout(nrow = 1, widths = 0.5)
+ggsave("distrib_kde_gauss.pdf", device = "pdf")
+
+
+# Epanechnikov kernel plot
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "epanechnikov", dens_bw = "nrd0", dnames[1])
+for (i in 2:4) {
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "epanechnikov", dens_bw = "nrd0", dnames[i])
+}
+grph + plot_layout(nrow = 1, widths = 0.5)
+ggsave("distrib_kde_epanech.pdf", device = "pdf")
+
 ```
+
 
 ```{r ISE_calculation}
 max_samples = 250
@@ -153,24 +218,39 @@ max_samples = 250
 # With histogram density estimation
 samples_1 = rdistrib_1(max_samples)
 
-integrate_data = integrate(function(x) {(hist_density(hist_data = hist(samples_1, freq = FALSE, plot = FALSE), x) - ddistrib_1(x))^2},
-          lower = -Inf, upper = Inf)
+integrate(function(x) {(hist_density(hist_output = hist(samples_1, plot = FALSE), x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
 
-curve((hist_density(hist_data = hist(samples_1, plot = FALSE), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
+curve((hist_density(hist_output = hist(samples_1, plot = FALSE), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
 
 
 # With kernel density estimation
+integrate(function(x) {(kern_density(density_output = density(samples_1), x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
+
+curve((kern_density(density_output = density(samples_1), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000, ylim =c(0, .5))
+plot_x = seq(from = -10, to = 10, length.out = 1000)
+lines(plot_x, kern_density(density_output = density(samples_1), plot_x), col = "red")
+lines(plot_x, ddistrib_1(plot_x), col = "blue")
 
 
 # With mixture density estimation
+integrate(function(x) {(normalmix_density(mix_output = normalmixEM(samples_1), x) - ddistrib_1(x))^2},
+          lower = -Inf, upper = Inf)
+
+curve((normalmix_density(mix_output = normalmixEM(samples_3), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
+plot_x = seq(from = -10, to = 10, length.out = 1000)
+lines(plot_x, normalmix_density(mix_output = normalmixEM(samples_3), plot_x), col = "red")
+lines(plot_x, ddistrib_3(plot_x), col = "blue")
+
 ```
-
-
-
 
 ## Monte Carlo simulation
 
 - ISEs for sample sizes 250, 500, 1000
+
+```{r}
+# TBD
+```
+
 
 Two things can be done here:
 
