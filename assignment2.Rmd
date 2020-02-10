@@ -9,6 +9,7 @@ output: pdf_document
 library(tidyverse, quietly = TRUE)
 library(patchwork, quietly = TRUE)
 library(mixtools)
+library(pracma)
 ```
 
 # Introduction
@@ -102,8 +103,7 @@ normalmix_density = function(mix_output, x) {
 ```
 
 ```{r cross_validation}
-
-
+# Compute the ISE Monte Carlo estimate (for unknown original density)
 cv_error = function(density_est, data) {
   # Compute the integral of the estimator
   int_fh2 = integrate(density_est, lower = -Inf, upper = Inf)
@@ -116,11 +116,15 @@ samples_1 = rdistrib_1(250)
 
 max_breaks = 10:50
 hist_densities = lapply(max_breaks,
-               function(B) {function(x) hist_density(hist(samples_1, breaks = B, plot = FALSE), x)})
+                        function(B) {
+                          function(x) hist_density(hist(samples_1, breaks = B, plot = FALSE), x)
+                        })
 
 bws = seq(0.1, 2, by = 0.1)
 kde_densities = lapply(bws,
-               function(B) {function(x) kern_density(density(samples_1, bw = B), x)})
+                       function(B) {
+                         function(x) kern_density(density(samples_1, bw = B), x)
+                       })
 
 
 cv_errors = as.numeric(lapply(kde_densities,
@@ -129,82 +133,109 @@ cv_errors = as.numeric(lapply(kde_densities,
 ```
 
 
-```{r graphing}
-# ggplot2 graphs
+```{r graph_functions}
+# Composable plots for histograms and KDEs
 
 overlay_hist_plot = function(data, fun, hist_breaks, distr_name) {
   ggplot(data = tibble(xx = data), aes(x = xx)) +
-    stat_function(fun = fun, color = "black", lwd = 1.5, xlim = c(0, 10)) +
     geom_histogram(aes(y = ..density..), breaks = hist_breaks,
                    color = "red", fill = "red", lwd = 1.2, alpha = 0.3, xlim = c(0,10)) +
+  stat_function(fun = fun, color = "black", lwd = 1, xlim = c(0, 10)) +
     ggtitle(distr_name)
 }
 
-
 overlay_dens_plot = function(data, fun, dens_ker, dens_bw, distr_name) {
   ggplot(data = tibble(xx = data), aes(x = xx)) +
-    stat_function(fun = fun, color = "black", lwd = 1.5, xlim = c(0, 10)) +
     stat_density(data = tibble(xx = data), aes(x = xx),
                  kernel = dens_ker, bw = dens_bw,
                  color = "blue", fill = "blue", alpha = 0, lwd = 1.5) +
+    stat_function(fun = fun, color = "black", lwd = 1, xlim = c(0, 10)) +
   ggtitle(distr_name)
 }
+```
 
-# WIP
-overlay_gmm_plot = function(data, fun, mix_output) {
-  ggplot(data = tibble(xx = data), aes(x = xx)) +
-    geom_histogram(aes(y = ..density..), breaks = hist_breaks,
-                   color = "black", fill = "red", lwd = 1.5, alpha = 0.5) +
-    stat_function(fun = fun, color = "black", lwd = 2) +
-    stat_density(data = tibble(xx = data), aes(x = xx),
-                 kernel = dens_ker, bw = dens_bw,
-                 color = "blue", alpha = 0, lwd = 2)
-}
+```{r graphing}
 
-
-
-max_samples = 1000
-
+# Prepare the distribution samplers, samples and density functions
+max_samples = 250
 rdistribs = list(rdistrib_1, rdistrib_3, rdistrib_4, rdistrib_5)
-
-ddistribs = list(ddistrib_1, ddistrib_3, ddistrib_4, ddistrib_5)
-
-dnames = c("Normal", "Uniform", "Gamma", "Mixture")
-
 x_samples = lapply(rdistribs, function(fun) fun(max_samples))
+ddistribs = list(ddistrib_1, ddistrib_3, ddistrib_4, ddistrib_5)
+dnames = c("Normal", "Uniform", "Gamma", "Mixture")
 
 
 # Histogram plot
-grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]], hist_breaks = hist(x_samples[[1]], plot = FALSE)$breaks, dnames[1])
+grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]],
+                         hist_breaks = hist(x_samples[[1]],
+                                            breaks = "FD",
+                                            plot = FALSE)$breaks,
+                         dnames[1])
 for (i in 2:4) {
-  grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]], hist_breaks = hist(x_samples[[i]], plot = FALSE)$breaks, dnames[i])
+  grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]],
+                                  hist_breaks = hist(x_samples[[i]],
+                                                     breaks = "FD",
+                                                     plot = FALSE)$breaks,
+                                  dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
 ggsave("distrib_hist.pdf", device = "pdf")
 
 
-# Rectangular kernel plot
-grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "rectangular", dens_bw = "nrd0", dnames[1])
+# Histogram plot with custom bins
+max_bins = 60
+grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]],
+                         hist_breaks = seq(0, 10, length.out = max_bins),
+                         dnames[1])
 for (i in 2:4) {
-  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "rectangular", dens_bw = "nrd0", dnames[i])
+  grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]],
+                                  hist_breaks = seq(0, 10, length.out = max_bins),
+                                  dnames[i])
+}
+grph + plot_layout(nrow = 1, widths = 0.5)
+ggsave(sprintf("distrib_hist_%d.pdf", max_bins), device = "pdf")
+
+
+# Rectangular kernel plot
+dens_bw_rect = 2
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
+                         dens_ker = "rectangular",
+                         dens_bw = dens_bw_rect,
+                         dnames[1])
+for (i in 2:4) {
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
+                                  dens_ker = "rectangular",
+                                  dens_bw = dens_bw_rect,
+                                  dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
 ggsave("distrib_kde_rect.pdf", device = "pdf")
 
 
 # Gaussian kernel plot
-grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "gaussian", dens_bw = "nrd0", dnames[1])
+dens_bw_gauss = 2
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
+                         dens_ker = "gaussian",
+                         dens_bw = dens_bw_gauss, dnames[1])
 for (i in 2:4) {
-  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "gaussian", dens_bw = "nrd0", dnames[i])
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
+                                  dens_ker = "gaussian",
+                                  dens_bw = dens_bw_gauss, dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
 ggsave("distrib_kde_gauss.pdf", device = "pdf")
 
 
 # Epanechnikov kernel plot
-grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]], dens_ker = "epanechnikov", dens_bw = "nrd0", dnames[1])
+dens_bw_epanech = "nrd0"
+grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
+                         dens_ker = "epanechnikov",
+                         dens_bw = dens_bw_epanech,
+                         dnames[1])
 for (i in 2:4) {
-  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]], dens_ker = "epanechnikov", dens_bw = "nrd0", dnames[i])
+  grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
+                                  dens_ker = "epanechnikov",
+                                  dens_bw = dens_bw_epanech,
+                                  dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
 ggsave("distrib_kde_epanech.pdf", device = "pdf")
@@ -212,15 +243,65 @@ ggsave("distrib_kde_epanech.pdf", device = "pdf")
 ```
 
 
-```{r ISE_calculation}
-max_samples = 250
+```{r ISE_hist_bins}
+max_samples = 1000
 
 # With histogram density estimation
-samples_1 = rdistrib_1(max_samples)
 
-integrate(function(x) {(hist_density(hist_output = hist(samples_1, plot = FALSE), x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
+theoretical_ISE = function(dens_fun, estimator_fun, range = c(-Inf, Inf), subdiv = 400) {
+  integrate(function(x) {(estimator_fun(x) - dens_fun(x))^2},
+            lower = range[1],
+            upper = range[2],
+            subdivisions = subdiv)$value
+}
 
-curve((hist_density(hist_output = hist(samples_1, plot = FALSE), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
+# Compute histograms of the same sample
+x_sample = x_samples[[2]]
+ddistrib = ddistribs[[2]]
+
+hist_outputs = lapply(seq(5, 40, by = 1),
+                      function(B) hist(x_sample,
+                                       breaks = seq(min(x_sample),
+                                                    max(x_sample),
+                                                    length.out = B),
+                                       plot = FALSE))
+
+ISEs = numeric(length(hist_outputs))
+for (i in 1:length(ISEs)) {
+  estim = function(x) hist_density(hist_outputs[[i]], x)
+  ISEs[i] = theoretical_ISE(ddistrib, estim)
+}
+
+plot(ISEs, lwd = 2, type = "l")
+```
+
+
+```{r ISE_kde_bw}
+max_samples = 250
+
+# With kde density estimation
+
+# We redefine the integration function with the pracma package
+theoretical_ISE_pracma = function(dens_fun, estimator_fun, range = c(-10, 10)) {
+  quad(function(x) {(estimator_fun(x) - dens_fun(x))^2},
+            xa = range[1],
+            xb = range[2])
+}
+
+# Compute KDEs of the same sample
+x_sample = x_samples[[2]]
+ddistrib = ddistribs[[2]]
+
+kde_outputs = lapply(seq(0.01, 2, by = 0.02),
+                     function(BW) density(x_sample, bw = BW, kernel = "gaussian"))
+
+ISEs = numeric(length(kde_outputs))
+for (i in 1:length(ISEs)) {
+  estim = function(x) kern_density(kde_outputs[[i]], x)
+  ISEs[i] = theoretical_ISE_pracma(ddistrib, estim)
+}
+
+plot(ISEs, lwd = 2, type = "l")
 
 
 # With kernel density estimation
@@ -232,7 +313,7 @@ lines(plot_x, kern_density(density_output = density(samples_1), plot_x), col = "
 lines(plot_x, ddistrib_1(plot_x), col = "blue")
 
 
-# With mixture density estimation
+# With mixture density estimation (unused)
 integrate(function(x) {(normalmix_density(mix_output = normalmixEM(samples_1), x) - ddistrib_1(x))^2},
           lower = -Inf, upper = Inf)
 
