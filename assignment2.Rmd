@@ -27,20 +27,17 @@ library(pracma)
 # Normal (unimodal base case)
 ddistrib_1 = function(x) dnorm(x, 5, 2)
 rdistrib_1 = function(n) rnorm(n, 5, 2)
-# Student t (unimodal with heavier tails)
-ddistrib_2 = function(x) dt(x - 5, df = 1)
-rdistrib_2 = function(n) 5 + rt(n, df = 1)
 # Uniform (discontinuous density with a dense modes)
-ddistrib_3 = function(x) dunif(x, 3, 8)
-rdistrib_3 = function(n) runif(n, 3, 8)
+ddistrib_2 = function(x) dunif(x, 3, 8)
+rdistrib_2 = function(n) runif(n, 3, 8)
 # Gamma (unimodal, positively skewed)
-ddistrib_4 = function(x) dgamma(x, 3, 1)
-rdistrib_4 = function(n) rgamma(n, 3, 1)
+ddistrib_3 = function(x) dgamma(x, 3, 1)
+rdistrib_3 = function(n) rgamma(n, 3, 1)
 # Mixture of distributions (trimodal, with many challenging features)
-ddistrib_5 = function(x) {
+ddistrib_4 = function(x) {
   0.5 * dexp(x, 0.7) + 0.3 * dgamma(9 - x, 2, 1.5) + 0.2 * dunif(x, 3.5, 5)
 }
-rdistrib_5 = function(n) {
+rdistrib_4 = function(n) {
   # Sample the sample sizes for each model according to the prior
   num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
   # Generate samples from each model and sample size and shuffle them
@@ -48,11 +45,16 @@ rdistrib_5 = function(n) {
            9 - rgamma(num_samples[2], 2, 1.5),
            runif(num_samples[3], 3.5, 5)))
 }
+# Student t (unimodal with heavier tails)
+ddistrib_5 = function(x) dt(x - 5, df = 1)
+rdistrib_5 = function(n) 5 + rt(n, df = 1)
+
 
 # Prepare the distribution samplers and density functions
-rdistribs = list(rdistrib_1, rdistrib_2, rdistrib_3, rdistrib_4, rdistrib_5)
-ddistribs = list(ddistrib_1, ddistrib_2, ddistrib_3, ddistrib_4, ddistrib_5)
-dnames = c("Normal", "Student t", "Uniform", "Gamma", "Mixture")
+# (Student-t omitted because its heavy tails are problematic)
+rdistribs = list(rdistrib_1, rdistrib_2, rdistrib_3, rdistrib_4)
+ddistribs = list(ddistrib_1, ddistrib_2, ddistrib_3, ddistrib_4)
+dnames = c("Normal", "Uniform", "Gamma", "Mixture")
 ```
 
 # Utility functions
@@ -65,7 +67,7 @@ hist_density = function(hist_output) {
 }
 
 # A density function obtained by linear interpolation
-kern_density = function(density_output) {
+kde_density = function(density_output) {
   approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)
 }
 
@@ -85,7 +87,7 @@ hist_density2 = function(hist_output, x) {
   })
 }
 
-kern_density2 = function(density_output, x) {
+kde_density2 = function(density_output, x) {
   approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)(x)
 }
 
@@ -120,7 +122,7 @@ hist_densities = lapply(max_breaks,
 bws = seq(0.1, 2, by = 0.1)
 kde_densities = lapply(bws,
                        function(B) {
-                         kern_density(density(samples_1, bw = B))
+                         kde_density(density(samples_1, bw = B))
                        })
 
 
@@ -136,9 +138,12 @@ cv_errors = as.numeric(lapply(kde_densities,
 overlay_hist_plot = function(data, fun, hist_breaks, distr_name) {
   ggplot(data = tibble(xx = data), aes(x = xx)) +
     geom_histogram(aes(y = ..density..), breaks = hist_breaks,
-                   color = "red", fill = "red", lwd = 1.2, alpha = 0.3, xlim = c(0,10)) +
-  stat_function(fun = fun, color = "black", lwd = 1, xlim = c(0, 10)) +
-    ggtitle(distr_name)
+                   color = "red", fill = "red", lwd = 1.2, alpha = 0.3) +
+    stat_function(fun = fun, color = "black", lwd = 1, xlim = c(0, 10)) +
+    ggtitle(distr_name) + xlab("x") + ylab("Density") +
+    theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+          axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18))
 }
 
 overlay_dens_plot = function(data, fun, dens_ker, dens_bw, distr_name) {
@@ -147,7 +152,10 @@ overlay_dens_plot = function(data, fun, dens_ker, dens_bw, distr_name) {
                  kernel = dens_ker, bw = dens_bw,
                  color = "blue", fill = "blue", alpha = 0, lwd = 1.5) +
     stat_function(fun = fun, color = "black", lwd = 1, xlim = c(0, 10)) +
-  ggtitle(distr_name)
+    ggtitle(distr_name) + xlab("x") + ylab("Density") +
+    theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+          axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18))
 }
 ```
 
@@ -177,26 +185,25 @@ for (i in 2:length(ddistribs)) {
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_hist.pdf", device = "pdf", width = NA, height = NA)
+ggsave("distrib_hist.pdf", device = "pdf", width = 20, height = 5)
 
 
-# Histogram plot with custom bins
-max_bins = 30
+# Histogram plot with custom bins (experimental)
+max_bins = c(8, 7, 13, 21)
 grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]],
-                         hist_breaks = seq(0, 10, length.out = max_bins),
+                         hist_breaks = seq(0, 10, length.out = max_bins[1]),
                          dnames[1])
 for (i in 2:length(ddistribs)) {
   grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]],
-                                  hist_breaks = seq(0, 10, length.out = max_bins),
+                                  hist_breaks = seq(0, 10, length.out = max_bins[i]),
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave(sprintf("distrib_hist_%d.pdf", max_bins), device = "pdf",
-       width = NA, height = NA)
+ggsave("distrib_hist_custom_bins.pdf", device = "pdf", width = 20, height = 5)
 
 
 # Rectangular kernel plot
-dens_bw_rect = 2
+dens_bw_rect = "SJ"
 grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
                          dens_ker = "rectangular",
                          dens_bw = dens_bw_rect,
@@ -208,12 +215,11 @@ for (i in 2:length(ddistribs)) {
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_rect.pdf", device = "pdf",
-       width = NA, height = NA)
+ggsave("distrib_kde_rect.pdf", device = "pdf", width = 20, height = 5)
 
 
 # Gaussian kernel plot
-dens_bw_gauss = 2
+dens_bw_gauss = "SJ"
 grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
                          dens_ker = "gaussian",
                          dens_bw = dens_bw_gauss, dnames[1])
@@ -223,8 +229,7 @@ for (i in 2:length(ddistribs)) {
                                   dens_bw = dens_bw_gauss, dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_gauss.pdf", device = "pdf",
-       width = NA, height = NA)
+ggsave("distrib_kde_gauss.pdf", device = "pdf", width = 20, height = 5)
 
 
 # Epanechnikov kernel plot
@@ -240,13 +245,12 @@ for (i in 2:length(ddistribs)) {
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_epanech.pdf", device = "pdf",
-       width = NA, height = NA)
+ggsave("distrib_kde_epanech.pdf", device = "pdf", width = 20, height = 5)
 
 ```
 
 
-```{r ISE_hist_bins}
+```{r ISE_computation_and_graphs}
 # With histogram density estimation
 
 theoretical_ISE = function(dens_fun, estimator_fun, range = c(-10, 10)) {
@@ -254,48 +258,6 @@ theoretical_ISE = function(dens_fun, estimator_fun, range = c(-10, 10)) {
        xa = range[1],
        xb = range[2])
 }
-
-# Compute histograms of the same sample (single test)
-distrib_idx = 4
-x_sample = x_samples[[distrib_idx]]
-ddistrib = ddistribs[[distrib_idx]]
-
-hist_outputs = lapply(seq(5, 40, by = 1),
-                      function(B) hist(x_sample,
-                                       breaks = seq(min(x_sample),
-                                                    max(x_sample),
-                                                    length.out = B),
-                                       plot = FALSE))
-
-hist_ISEs = numeric(length(hist_outputs))
-for (i in 1:length(hist_ISEs)) {
-  estim = hist_density(hist_outputs[[i]])
-  hist_ISEs[i] = theoretical_ISE(ddistrib, estim)
-}
-
-plot(hist_ISEs, lwd = 2, type = "l")
-
-
-# Graph for multiple distributions
-min_bins = 5
-max_bins = 40
-
-hist_ISEs = matrix(nrow = max_bins - min_bins + 1, ncol = length(ddistribs))
-for (distrib_idx in 1:length(ddistribs)) {
-  x_sample = x_samples[[distrib_idx]]
-  ddistrib = ddistribs[[distrib_idx]]
-  hist_outputs = lapply(seq(min_bins, max_bins, by = 1),
-                        function(B) hist(x_sample,
-                                         breaks = seq(min(x_sample),
-                                                      max(x_sample),
-                                                      length.out = B),
-                                         plot = FALSE))
-  for (i in 1:nrow(hist_ISEs)) {
-    estim = hist_density(hist_outputs[[i]])
-    hist_ISEs[i, distrib_idx] = theoretical_ISE(ddistrib, estim)
-  }
-}
-
 
 # Generic plot of ISE against smoothness (can be used with hist and kde data)
 smoothness_plot = function(smoothness_x, ISE_y,
@@ -308,69 +270,187 @@ smoothness_plot = function(smoothness_x, ISE_y,
           axis.title = element_text(size = 18),
           axis.text = element_text(size = 18))
 }
+```
 
 
-# Histogram "ISE vs Number of Bins" plot
-grph = smoothness_plot(seq(min_bins, max_bins, by = 1), hist_ISEs[, 1],
+```{r ISE_hist_bins}
+# Range of bin numbers to be tested
+min_bins = 5
+max_bins = 40
+bins_nums = seq(min_bins, max_bins, by = 1)
+
+###--------------------------------------###
+
+# Histogram "ISE vs Number of Bins" 
+hist_ISEs = matrix(nrow = max_bins - min_bins + 1, ncol = length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  hist_outputs = lapply(bins_nums,
+                        function(B) hist(x_sample,
+                                         breaks = seq(min(x_sample),
+                                                      max(x_sample),
+                                                      length.out = B),
+                                         plot = FALSE))
+  for (i in 1:nrow(hist_ISEs)) {
+    estim = hist_density(hist_outputs[[i]])
+    hist_ISEs[i, distrib_idx] = theoretical_ISE(ddistrib, estim)
+  }
+}
+
+# plot
+grph = smoothness_plot(bins_nums, hist_ISEs[, 1],
                        title = dnames[[1]], xlab = "Number of bins")
 for (i in 2:length(ddistribs)) {
-  grph = grph + smoothness_plot(seq(min_bins, max_bins, by = 1),
+  grph = grph + smoothness_plot(bins_nums,
                                 hist_ISEs[, i], title = dnames[[i]],
                                 xlab = "Number of bins")
 }
 grph + plot_layout(nrow = 1, widths = 0.5, heights = 0.5)
 
-
+# Save plots to file
 ggsave("distrib_hist_smoothness.pdf", device = "pdf",
        width = 20, height = 4, units = "in")
 
+# Table of min and argmin
+knitr::kable(
+  tibble(argmin_hist_ISEs = bins_nums[apply(hist_ISEs, 2, which.min)],
+         min_hist_ISEs = apply(hist_ISEs, MARGIN = 2, min)))
+
+
+###--------------------------------------###
+
+# Compute histogram with default binsize choice
+optimal_hist_binnum = numeric(length(ddistribs))
+optimal_hist_ISEs = numeric(length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  hist_output = hist(x_sample, breaks = "Scott", plot = FALSE)
+  estim = hist_density(hist_output)
+  optimal_hist_ISEs[distrib_idx] = theoretical_ISE(ddistrib, estim)
+  optimal_hist_binnum[distrib_idx] = length(hist_output$counts)
+}
 ```
 
 
 ```{r ISE_kde_bw}
-# With kde density estimation
+# Range of bandwidths to be tested
+min_bw = 0.01
+max_bw = 2.0
+bw_step = 0.02
 
-# Compute KDEs of the same sample
-x_sample = x_samples[[3]]
-ddistrib = ddistribs[[3]]
-bbww = seq(0.01, 2, by = 0.02)
+bbww = seq(min_bw, max_bw, by = bw_step)
 
-kde_outputs = lapply(bbww, function(BW) density(x_sample, bw = BW,
-                                                kernel = "gaussian"))
+###--------------------------------------###
 
-ISEs = numeric(length(kde_outputs))
-for (i in 1:length(ISEs)) {
-  estim = kern_density(kde_outputs[[i]])
-  ISEs[i] = theoretical_ISE(ddistrib, estim)
+# Gaussian KDE "ISE vs Bandwidth"
+kde_gauss_ISEs = matrix(nrow = length(bbww), ncol = length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  kde_outputs = lapply(bbww, function(BW) density(x_sample,
+                                                  bw = BW,
+                                                  kernel = "gaussian"))
+  for (i in 1:nrow(kde_gauss_ISEs)) {
+    estim = kde_density(kde_outputs[[i]])
+    kde_gauss_ISEs[i, distrib_idx] = theoretical_ISE(ddistrib, estim)
+  }
 }
 
-plot(bbww, ISEs, lwd = 2, type = "l")
+#plot
+grph = smoothness_plot(bbww, kde_gauss_ISEs[, 1],
+                       title = dnames[[1]], xlab = "Bandwidth")
+for (i in 2:length(ddistribs)) {
+  grph = grph + smoothness_plot(bbww, kde_gauss_ISEs[, i],
+                                title = dnames[[i]], xlab = "Bandwidth")
+}
+grph + plot_layout(nrow = 1, widths = 0.5, heights = 0.5)
 
-plot(density(x_sample))
+# Save graph to file
+ggsave("distrib_kde_gaussian_smoothness.pdf", device = "pdf",
+       width = 20, height = 4, units = "in")
 
+# Table of min and argmin
+knitr::kable(
+  tibble(argmin_kde_ISEs = bbww[apply(kde_gauss_ISEs, 2, which.min)],
+         min_kde_ISEs = apply(kde_gauss_ISEs, MARGIN = 2, min)))
 
+###--------------------------------------###
 
-# OLD CODE
+# Compute gauss kde with default binsize choice
+optimal_kde_gauss_bw = numeric(length(ddistribs))
+optimal_kde_gauss_ISE = numeric(length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  kde_output = density(x_sample, bw = "SJ", kernel = "gaussian")
+  estim = kde_density(kde_output)
+  optimal_kde_gauss_ISE[distrib_idx] = theoretical_ISE(ddistrib, estim)
+  optimal_kde_gauss_bw[distrib_idx] = kde_output$bw
+}
 
-# With kernel density estimation
-integrate(function(x) {(kern_density(density_output = density(samples_1), x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
+###--------------------------------------###
 
-curve((kern_density(density_output = density(samples_1), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000, ylim =c(0, .5))
-plot_x = seq(from = -10, to = 10, length.out = 1000)
-lines(plot_x, kern_density(density_output = density(samples_1), plot_x), col = "red")
-lines(plot_x, ddistrib_1(plot_x), col = "blue")
+# Rectangular KDE "ISE vs Bandwidth"
+kde_rect_ISEs = matrix(nrow = length(bbww), ncol = length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  kde_outputs = lapply(bbww, function(BW) density(x_sample,
+                                                  bw = BW,
+                                                  kernel = "rectangular"))
+  for (i in 1:nrow(kde_rect_ISEs)) {
+    estim = kde_density(kde_outputs[[i]])
+    kde_rect_ISEs[i, distrib_idx] = theoretical_ISE(ddistrib, estim)
+  }
+}
 
+# Plot
+grph = smoothness_plot(bbww, kde_rect_ISEs[, 1],
+                       title = dnames[[1]], xlab = "Bandwidth")
+for (i in 2:length(ddistribs)) {
+  grph = grph + smoothness_plot(bbww, kde_rect_ISEs[, i],
+                                title = dnames[[i]], xlab = "Bandwidth")
+}
+grph + plot_layout(nrow = 1, widths = 0.5, heights = 0.5)
 
-# With mixture density estimation (unused)
-integrate(function(x) {(normalmix_density(mix_output = normalmixEM(samples_1), x) - ddistrib_1(x))^2},
-          lower = -Inf, upper = Inf)
+# Save graph to file
+ggsave("distrib_kde_rect_smoothness.pdf", device = "pdf",
+       width = 20, height = 4, units = "in")
 
-curve((normalmix_density(mix_output = normalmixEM(samples_3), x) - ddistrib_1(x)), from = -10, to = 10, n = 1000)
-plot_x = seq(from = -10, to = 10, length.out = 1000)
-lines(plot_x, normalmix_density(mix_output = normalmixEM(samples_3), plot_x), col = "red")
-lines(plot_x, ddistrib_3(plot_x), col = "blue")
+# Table of min and argmin
+knitr::kable(tibble(argmin_kde_ISEs = bbww[apply(kde_rect_ISEs, 2, which.min)],
+                    min_kde_ISEs = apply(kde_rect_ISEs, MARGIN = 2, min)))
+                    
+###--------------------------------------###
+
+# Compute rect kde with default binsize choice
+optimal_kde_rect_bw = numeric(length(ddistribs))
+optimal_kde_rect_ISE = numeric(length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  kde_output = density(x_sample, bw = "SJ", kernel = "rectangular")
+  estim = kde_density(kde_output)
+  optimal_kde_rect_ISE[distrib_idx] = theoretical_ISE(ddistrib, estim)
+  optimal_kde_rect_bw[distrib_idx] = kde_output$bw
+}
+
 
 ```
+
+```{r OLD_ISE_CODE}
+# With kernel density estimation
+integrate(function(x) {(kde_density(density_output = density(samples_1))(x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
+
+curve((kde_density(density_output = density(samples_1))(x) - ddistrib_1(x)), from = -10, to = 10, n = 1000, ylim =c(0, .5))
+plot_x = seq(from = -10, to = 10, length.out = 1000)
+lines(plot_x, kde_density(density_output = density(samples_1))(plot_x), col = "red")
+lines(plot_x, ddistrib_1(plot_x), col = "blue")
+
+```
+
 
 ## Monte Carlo simulation
 
