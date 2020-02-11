@@ -1,82 +1,77 @@
-	---
+---
 title: "Statistical Research Skills -- Assignment 2"
 author: "Lorenzo Mella (UUN: s1566023)"
 output: pdf_document
 ---
 
 
-```{r}
+# Preliminary configuration
+
+
+## Libraries
+
+We first load some essential packages:
+
+```{r packages}
 library(tidyverse, quietly = TRUE)
 library(patchwork, quietly = TRUE)
-library(mixtools)
+## library(mixtools)
 library(pracma)
 ```
 
-# Introduction
-
-## Kernel density estimator
-
-Problematic choices:
-
-- bandwidth
-- kernel shape
-
-
-## Histogram estimator
-
-Problematic choices:
-
-- number of bins
-
-## Mixture model estimator
-
-Problematic parameter:
-
-- conditional distributions
-- number of conditional distributions
-
-
-# Experimental setting
-
 ## Densities that represent a wide testing range of possibilities
 
-```{r}
-# Define densities and RNGs for the distributions to be tested
+```{r distrib_definition}
+# Define densities and samplers for the distributions to be tested
 
 # Normal (unimodal base case)
 ddistrib_1 = function(x) dnorm(x, 5, 2)
 rdistrib_1 = function(n) rnorm(n, 5, 2)
 # Student t (unimodal with heavier tails)
-ddistrib_2 = function(x) dt(x / 3, df = 1)
-rdistrib_2 = function(n) 3 * rt(n, df = 1)
+ddistrib_2 = function(x) dt(x - 5, df = 1)
+rdistrib_2 = function(n) 5 + rt(n, df = 1)
 # Uniform (discontinuous density with a dense modes)
 ddistrib_3 = function(x) dunif(x, 3, 8)
 rdistrib_3 = function(n) runif(n, 3, 8)
 # Gamma (unimodal, positively skewed)
 ddistrib_4 = function(x) dgamma(x, 3, 1)
 rdistrib_4 = function(n) rgamma(n, 3, 1)
-# Mixture of distributions
-# (trimodal, with many challenging features)
+# Mixture of distributions (trimodal, with many challenging features)
 ddistrib_5 = function(x) {
   0.5 * dexp(x, 0.7) + 0.3 * dgamma(9 - x, 2, 1.5) + 0.2 * dunif(x, 3.5, 5)
 }
 rdistrib_5 = function(n) {
+  # Sample the sample sizes for each model according to the prior
   num_samples = rmultinom(1, n, c(0.5, 0.3, 0.2))
+  # Generate samples from each model and sample size and shuffle them
   sample(c(rexp(num_samples[1], 0.7),
            9 - rgamma(num_samples[2], 2, 1.5),
            runif(num_samples[3], 3.5, 5)))
 }
+
+# Prepare the distribution samplers and density functions
+rdistribs = list(rdistrib_1, rdistrib_2, rdistrib_3, rdistrib_4, rdistrib_5)
+ddistribs = list(ddistrib_1, ddistrib_2, ddistrib_3, ddistrib_4, ddistrib_5)
+dnames = c("Normal", "Student t", "Uniform", "Gamma", "Mixture")
 ```
 
-## One shot experiments
-
-- Graphs
-- Discussion
+# Utility functions
 
 ```{r density_reconstruction}
 # A density function obtained from histogram data returned by hist
+hist_density = function(hist_output) {
+  approxfun(hist_output$breaks, c(hist_output$density, 0),
+            method = "constant", yleft = 0, yright = 0)
+}
 
-hist_density = function(hist_output, x) {
+# A density function obtained by linear interpolation
+kern_density = function(density_output) {
+  approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)
+}
+
+
+# Old versions that return numeric vectors
+hist_density2 = function(hist_output, x) {
   # Find the bin where x lies: its index is the maximum number
   # of breaks less or equal to x. Return the histogram normalised
   # frequency of that bin
@@ -90,23 +85,25 @@ hist_density = function(hist_output, x) {
   })
 }
 
-# A density function obtained by linear interpolation
-kern_density = function(density_output, x) {
+kern_density2 = function(density_output, x) {
   approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)(x)
 }
 
-# A density function obtained from the output of normalmixEM
-normalmix_density = function(mix_output, x) {
-  sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
-}
+
+# A density function obtained from the output of normalmixEM (unused)
+## normalmix_density = function(mix_output, x) {
+##   sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
+## }
 
 ```
 
 ```{r cross_validation}
+# WIP
+
 # Compute the ISE Monte Carlo estimate (for unknown original density)
 cv_error = function(density_est, data) {
   # Compute the integral of the estimator
-  int_fh2 = integrate(density_est, lower = -Inf, upper = Inf)
+  int_fh2 = quad(density_est, xa = -10, xb = 10)
   # Monte-carlo estimate of the cross term
   int_ffh = mean(density_est(data))
   return(int_fh2$value - 2 * int_ffh)
@@ -117,13 +114,13 @@ samples_1 = rdistrib_1(250)
 max_breaks = 10:50
 hist_densities = lapply(max_breaks,
                         function(B) {
-                          function(x) hist_density(hist(samples_1, breaks = B, plot = FALSE), x)
+                          hist_density(hist(samples_1, breaks = B, plot = FALSE))
                         })
 
 bws = seq(0.1, 2, by = 0.1)
 kde_densities = lapply(bws,
                        function(B) {
-                         function(x) kern_density(density(samples_1, bw = B), x)
+                         kern_density(density(samples_1, bw = B))
                        })
 
 
@@ -154,23 +151,25 @@ overlay_dens_plot = function(data, fun, dens_ker, dens_bw, distr_name) {
 }
 ```
 
-```{r graphing}
+# One shot experiments
 
-# Prepare the distribution samplers, samples and density functions
+As these are one-shot experiments, we generate the unique sample here, choosing 250 as the sample size. This is convenient in illustrating the deficiencies of the histogram in increasing smoothing (i.e., decreasing the bin width) in the presence of small samples.
+
+```{r one_shot_data_generation}
 max_samples = 250
-rdistribs = list(rdistrib_1, rdistrib_3, rdistrib_4, rdistrib_5)
 x_samples = lapply(rdistribs, function(fun) fun(max_samples))
-ddistribs = list(ddistrib_1, ddistrib_3, ddistrib_4, ddistrib_5)
-dnames = c("Normal", "Uniform", "Gamma", "Mixture")
+```
 
+## Generation of graphs useful scenarios
 
+```{r graphing}
 # Histogram plot
 grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]],
                          hist_breaks = hist(x_samples[[1]],
                                             breaks = "FD",
                                             plot = FALSE)$breaks,
                          dnames[1])
-for (i in 2:4) {
+for (i in 2:length(ddistribs)) {
   grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]],
                                   hist_breaks = hist(x_samples[[i]],
                                                      breaks = "FD",
@@ -178,21 +177,22 @@ for (i in 2:4) {
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_hist.pdf", device = "pdf")
+ggsave("distrib_hist.pdf", device = "pdf", width = NA, height = NA)
 
 
 # Histogram plot with custom bins
-max_bins = 60
+max_bins = 30
 grph = overlay_hist_plot(x_samples[[1]], fun = ddistribs[[1]],
                          hist_breaks = seq(0, 10, length.out = max_bins),
                          dnames[1])
-for (i in 2:4) {
+for (i in 2:length(ddistribs)) {
   grph = grph + overlay_hist_plot(x_samples[[i]], fun = ddistribs[[i]],
                                   hist_breaks = seq(0, 10, length.out = max_bins),
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave(sprintf("distrib_hist_%d.pdf", max_bins), device = "pdf")
+ggsave(sprintf("distrib_hist_%d.pdf", max_bins), device = "pdf",
+       width = NA, height = NA)
 
 
 # Rectangular kernel plot
@@ -201,14 +201,15 @@ grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
                          dens_ker = "rectangular",
                          dens_bw = dens_bw_rect,
                          dnames[1])
-for (i in 2:4) {
+for (i in 2:length(ddistribs)) {
   grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
                                   dens_ker = "rectangular",
                                   dens_bw = dens_bw_rect,
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_rect.pdf", device = "pdf")
+ggsave("distrib_kde_rect.pdf", device = "pdf",
+       width = NA, height = NA)
 
 
 # Gaussian kernel plot
@@ -216,13 +217,14 @@ dens_bw_gauss = 2
 grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
                          dens_ker = "gaussian",
                          dens_bw = dens_bw_gauss, dnames[1])
-for (i in 2:4) {
+for (i in 2:length(ddistribs)) {
   grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
                                   dens_ker = "gaussian",
                                   dens_bw = dens_bw_gauss, dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_gauss.pdf", device = "pdf")
+ggsave("distrib_kde_gauss.pdf", device = "pdf",
+       width = NA, height = NA)
 
 
 # Epanechnikov kernel plot
@@ -231,33 +233,32 @@ grph = overlay_dens_plot(x_samples[[1]], fun = ddistribs[[1]],
                          dens_ker = "epanechnikov",
                          dens_bw = dens_bw_epanech,
                          dnames[1])
-for (i in 2:4) {
+for (i in 2:length(ddistribs)) {
   grph = grph + overlay_dens_plot(x_samples[[i]], fun = ddistribs[[i]],
                                   dens_ker = "epanechnikov",
                                   dens_bw = dens_bw_epanech,
                                   dnames[i])
 }
 grph + plot_layout(nrow = 1, widths = 0.5)
-ggsave("distrib_kde_epanech.pdf", device = "pdf")
+ggsave("distrib_kde_epanech.pdf", device = "pdf",
+       width = NA, height = NA)
 
 ```
 
 
 ```{r ISE_hist_bins}
-max_samples = 1000
-
 # With histogram density estimation
 
-theoretical_ISE = function(dens_fun, estimator_fun, range = c(-Inf, Inf), subdiv = 400) {
-  integrate(function(x) {(estimator_fun(x) - dens_fun(x))^2},
-            lower = range[1],
-            upper = range[2],
-            subdivisions = subdiv)$value
+theoretical_ISE = function(dens_fun, estimator_fun, range = c(-10, 10)) {
+  quad(function(x) {(estimator_fun(x) - dens_fun(x))^2},
+       xa = range[1],
+       xb = range[2])
 }
 
-# Compute histograms of the same sample
-x_sample = x_samples[[2]]
-ddistrib = ddistribs[[2]]
+# Compute histograms of the same sample (single test)
+distrib_idx = 4
+x_sample = x_samples[[distrib_idx]]
+ddistrib = ddistribs[[distrib_idx]]
 
 hist_outputs = lapply(seq(5, 40, by = 1),
                       function(B) hist(x_sample,
@@ -266,43 +267,90 @@ hist_outputs = lapply(seq(5, 40, by = 1),
                                                     length.out = B),
                                        plot = FALSE))
 
-ISEs = numeric(length(hist_outputs))
-for (i in 1:length(ISEs)) {
-  estim = function(x) hist_density(hist_outputs[[i]], x)
-  ISEs[i] = theoretical_ISE(ddistrib, estim)
+hist_ISEs = numeric(length(hist_outputs))
+for (i in 1:length(hist_ISEs)) {
+  estim = hist_density(hist_outputs[[i]])
+  hist_ISEs[i] = theoretical_ISE(ddistrib, estim)
 }
 
-plot(ISEs, lwd = 2, type = "l")
+plot(hist_ISEs, lwd = 2, type = "l")
+
+
+# Graph for multiple distributions
+min_bins = 5
+max_bins = 40
+
+hist_ISEs = matrix(nrow = max_bins - min_bins + 1, ncol = length(ddistribs))
+for (distrib_idx in 1:length(ddistribs)) {
+  x_sample = x_samples[[distrib_idx]]
+  ddistrib = ddistribs[[distrib_idx]]
+  hist_outputs = lapply(seq(min_bins, max_bins, by = 1),
+                        function(B) hist(x_sample,
+                                         breaks = seq(min(x_sample),
+                                                      max(x_sample),
+                                                      length.out = B),
+                                         plot = FALSE))
+  for (i in 1:nrow(hist_ISEs)) {
+    estim = hist_density(hist_outputs[[i]])
+    hist_ISEs[i, distrib_idx] = theoretical_ISE(ddistrib, estim)
+  }
+}
+
+
+# Generic plot of ISE against smoothness (can be used with hist and kde data)
+smoothness_plot = function(smoothness_x, ISE_y,
+                           title, xlab, ylab = "ISE") {
+  stopifnot(length(smoothness_x) == length(ISE_y))
+  ggplot(tibble(smoothness_x, ISE_y), aes(x = smoothness_x, y = ISE_y)) +
+    geom_line(lwd = 2) +
+    ggtitle(title) + xlab(xlab) + ylab(ylab) +
+    theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+          axis.title = element_text(size = 18),
+          axis.text = element_text(size = 18))
+}
+
+
+# Histogram "ISE vs Number of Bins" plot
+grph = smoothness_plot(seq(min_bins, max_bins, by = 1), hist_ISEs[, 1],
+                       title = dnames[[1]], xlab = "Number of bins")
+for (i in 2:length(ddistribs)) {
+  grph = grph + smoothness_plot(seq(min_bins, max_bins, by = 1),
+                                hist_ISEs[, i], title = dnames[[i]],
+                                xlab = "Number of bins")
+}
+grph + plot_layout(nrow = 1, widths = 0.5, heights = 0.5)
+
+
+ggsave("distrib_hist_smoothness.pdf", device = "pdf",
+       width = 20, height = 4, units = "in")
+
 ```
 
 
 ```{r ISE_kde_bw}
-max_samples = 250
-
 # With kde density estimation
 
-# We redefine the integration function with the pracma package
-theoretical_ISE_pracma = function(dens_fun, estimator_fun, range = c(-10, 10)) {
-  quad(function(x) {(estimator_fun(x) - dens_fun(x))^2},
-            xa = range[1],
-            xb = range[2])
-}
-
 # Compute KDEs of the same sample
-x_sample = x_samples[[2]]
-ddistrib = ddistribs[[2]]
+x_sample = x_samples[[3]]
+ddistrib = ddistribs[[3]]
+bbww = seq(0.01, 2, by = 0.02)
 
-kde_outputs = lapply(seq(0.01, 2, by = 0.02),
-                     function(BW) density(x_sample, bw = BW, kernel = "gaussian"))
+kde_outputs = lapply(bbww, function(BW) density(x_sample, bw = BW,
+                                                kernel = "gaussian"))
 
 ISEs = numeric(length(kde_outputs))
 for (i in 1:length(ISEs)) {
-  estim = function(x) kern_density(kde_outputs[[i]], x)
-  ISEs[i] = theoretical_ISE_pracma(ddistrib, estim)
+  estim = kern_density(kde_outputs[[i]])
+  ISEs[i] = theoretical_ISE(ddistrib, estim)
 }
 
-plot(ISEs, lwd = 2, type = "l")
+plot(bbww, ISEs, lwd = 2, type = "l")
 
+plot(density(x_sample))
+
+
+
+# OLD CODE
 
 # With kernel density estimation
 integrate(function(x) {(kern_density(density_output = density(samples_1), x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
