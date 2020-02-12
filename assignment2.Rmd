@@ -15,7 +15,6 @@ We first load some essential packages:
 ```{r packages}
 library(tidyverse, quietly = TRUE)
 library(patchwork, quietly = TRUE)
-## library(mixtools)
 library(pracma)
 ```
 
@@ -451,19 +450,116 @@ lines(plot_x, ddistrib_1(plot_x), col = "blue")
 
 ```
 
+# Monte Carlo simulation
 
-## Monte Carlo simulation
+We are going to estimate the (theoretical) MISEs for sample sizes 250, 500, 1000.
+We will also analyse more in depth the distribution of the (theoretical) ISE.
 
-- ISEs for sample sizes 250, 500, 1000
+```{r MC_constants}
+# Shared simulation parameters
+max_sims = 1000
+max_samples = 1000
+```
 
-```{r}
-# TBD
+```{r MC_simulation}
+# MC data generation
+
+# Create arrays with ISE results for all cases of interest
+mc_hist_ISEs = matrix(nrow = max_sims, ncol = length(ddistribs))
+colnames(mc_hist_ISEs) = dnames
+mc_kde_gauss_ISEs = matrix(nrow = max_sims, ncol = length(ddistribs))
+colnames(mc_kde_gauss_ISEs) = dnames
+mc_kde_rect_ISEs = matrix(nrow = max_sims, ncol = length(ddistribs))
+colnames(mc_kde_rect_ISEs) = dnames
+
+# Iterate over max_sims simulations
+for (sim in 1:max_sims) {
+  # Generate new samples from all distributions
+  mc_x_samples = lapply(rdistribs, function(rng) rng(max_samples))
+  # Compute the ISE, for each sample, each distribution and each estimator
+  for (distrib_idx in 1:length(ddistribs)) {
+    ddistrib = ddistribs[[distrib_idx]]
+    # Histogram ISE
+    hist_output = hist(mc_x_samples[[distrib_idx]],
+                         breaks = "FD", plot = FALSE)
+    estim = hist_density(hist_output)
+    mc_hist_ISEs[sim, distrib_idx] = theoretical_ISE(ddistrib, estim)
+    # Gaussian KDE ISE
+    gauss_kde_output = density(mc_x_samples[[distrib_idx]],
+                         bw = "SJ", kernel = "gaussian")
+    estim = kde_density(gauss_kde_output)
+    mc_kde_gauss_ISEs[sim, distrib_idx] = theoretical_ISE(ddistrib, estim)
+    # Rectangular KDE ISE
+    rect_kde_output = density(mc_x_samples[[distrib_idx]],
+                         bw = "SJ", kernel = "rectangular")
+    estim = kde_density(rect_kde_output)
+    mc_kde_rect_ISEs[sim, distrib_idx] = theoretical_ISE(ddistrib, estim)
+  }
+}
+
+# Extract basic statistics on the ISE distribution
+mc_long_tb %>%
+  group_by(Model) %>%
+  summarise_at(.vars = dnames, .funs = c(mean, var)) %>%
+  rename_at(.vars = 2:5, .funs = ~ paste(str_remove(., "_fn1"), "mean")) %>%
+  rename_at(.vars = 6:9, .funs = ~ paste(str_remove(., "_fn2"), "var")) %>%
+  knitr::kable()
 ```
 
 
-Two things can be done here:
+```{r MC_graphing}
+# Consolidate the data in a single data-frame
+mc_long_tb = bind_rows(as.tibble(mc_hist_ISEs) %>%
+                         add_column(Simulation = 1:max_sims,
+                                    Model = rep("Histogram", max_sims),
+                                    .before = TRUE),
+                       as.tibble(mc_kde_gauss_ISEs) %>%
+                         add_column(Simulation = 1:max_sims,
+                                    Model = rep("Gaussian\nKDE", max_sims),
+                                    .before = TRUE),
+                       as.tibble(mc_kde_rect_ISEs) %>%
+                         add_column(Simulation = 1:max_sims,
+                                    Model = rep("Rectangular\nKDE", max_sims),
+                                    .before = TRUE))
 
-* Compute a Monte Carlo estimate of the MISE (per method per sample size)
-* Plot ISE histograms for each category and as a function of "time" on the same graph
+# Set model name as factor (to draw the labels in the right order)
+mc_long_tb$Model = as.factor(mc_long_tb$Model)
+mc_long_tb$Model = relevel(mc_long_tb$Model, "Histogram")
 
-- Discussion
+# Define graphs with violin-plot comparisons for each distribution
+grph_1 =  ggplot(mc_long_tb, aes(x = Model, y = Normal,
+                                 color = Model, fill = Model)) +
+  geom_violin(lwd = 1.5, alpha = .5, show.legend = FALSE) +
+  ggtitle(dnames[1]) + xlab(NULL) + ylab("ISE") +
+  theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16))
+grph_2 =  ggplot(mc_long_tb, aes(x = Model, y = Uniform,
+                                 color = Model, fill = Model)) +
+  geom_violin(lwd = 1.5, alpha = .5, show.legend = FALSE) +
+  ggtitle(dnames[2]) + xlab(NULL) + ylab("ISE") +
+  theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16))
+grph_3 =  ggplot(mc_long_tb, aes(x = Model, y = Gamma,
+                                 color = Model, fill = Model)) +
+  geom_violin(lwd = 1.5, alpha = .5, show.legend = FALSE) +
+  ggtitle(dnames[3]) + xlab(NULL) + ylab("ISE") +
+  theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16))
+grph_4 = ggplot(mc_long_tb, aes(x = Model, y = Mixture,
+                                 color = Model, fill = Model)) +
+  geom_violin(lwd = 1.5, alpha = .5, show.legend = FALSE) +
+  ggtitle(dnames[4]) + xlab(NULL) + ylab("ISE") +
+  theme(plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16))
+
+# Compose graphs
+grph = grph_1 + grph_2 + grph_3 + grph_4 + plot_layout(nrow = 1, widths = 0.5)
+# Save graph to file
+ggsave(sprintf("violin_plots_%d.pdf", max_samples), device = "pdf",
+       width = 20, height = 4, units = "in")
+
+```
