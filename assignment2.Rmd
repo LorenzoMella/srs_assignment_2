@@ -69,34 +69,8 @@ hist_density = function(hist_output) {
 kde_density = function(density_output) {
   approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)
 }
-
-
-# Old versions that return numeric vectors
-hist_density2 = function(hist_output, x) {
-  # Find the bin where x lies: its index is the maximum number
-  # of breaks less or equal to x. Return the histogram normalised
-  # frequency of that bin
-  sapply(x, FUN = function(y) {
-    if (y < hist_output$breaks[1] |
-          y >= hist_output$breaks[length(hist_output$breaks)]) {
-      return(0)
-    } else {
-      return(hist_output$density[sum(hist_output$breaks - y <= 0)])
-    }
-  })
-}
-
-kde_density2 = function(density_output, x) {
-  approxfun(density_output$x, density_output$y, yleft = 0, yright = 0)(x)
-}
-
-
-# A density function obtained from the output of normalmixEM (unused)
-## normalmix_density = function(mix_output, x) {
-##   sapply(x, function(y) sum(mix_output$lambda * dnorm(y, mix_output$mu, mix_output$sigma)))
-## }
-
 ```
+
 
 ```{r cross_validation}
 # WIP
@@ -436,17 +410,6 @@ for (distrib_idx in 1:length(ddistribs)) {
   optimal_kde_rect_bw[distrib_idx] = kde_output$bw
 }
 
-
-```
-
-```{r OLD_ISE_CODE}
-# With kernel density estimation
-integrate(function(x) {(kde_density(density_output = density(samples_1))(x) - ddistrib_1(x))^2}, lower = -Inf, upper = Inf)
-
-curve((kde_density(density_output = density(samples_1))(x) - ddistrib_1(x)), from = -10, to = 10, n = 1000, ylim =c(0, .5))
-plot_x = seq(from = -10, to = 10, length.out = 1000)
-lines(plot_x, kde_density(density_output = density(samples_1))(plot_x), col = "red")
-lines(plot_x, ddistrib_1(plot_x), col = "blue")
 
 ```
 
